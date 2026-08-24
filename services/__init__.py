@@ -13,6 +13,7 @@ from services.installment_service import (
     generate_installment_schedule,
     split_installment_amounts,
 )
+from services.loan_service import LoanScheduleItem, generate_loan_schedule
 from services.recurring_service import (
     RecurrenceOccurrence,
     RecurrenceRule,
@@ -25,6 +26,7 @@ __all__ = [
     "ForecastPoint",
     "Installment",
     "InvoiceCycle",
+    "LoanScheduleItem",
     "RecurrenceOccurrence",
     "RecurrenceRule",
     "calculate_account_balance",
@@ -32,6 +34,7 @@ __all__ = [
     "calculate_invoice_dates",
     "create_transfer",
     "generate_installment_schedule",
+    "generate_loan_schedule",
     "generate_recurrence_occurrences",
     "project_balance",
     "split_installment_amounts",

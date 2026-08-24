@@ -36,6 +36,8 @@ from .models import (
     GoalContribution,
     Installment,
     Liability,
+    Loan,
+    LoanInstallment,
     NetWorthSnapshot,
     RecurringTransaction,
     SoftDeleteMixin,
@@ -100,6 +102,29 @@ class CardSummary:
     open_amount: Decimal
     available_limit: Decimal
     utilization_percent: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class InstallmentPlanSummary:
+    group_id: uuid.UUID
+    description: str
+    credit_card_id: uuid.UUID | None
+    total_installments: int
+    paid_installments: int
+    remaining_installments: int
+    remaining_amount: Decimal
+    next_due_date: date | None
+    end_date: date
+
+
+@dataclass(frozen=True, slots=True)
+class LoanSummary:
+    loan: Loan
+    paid_installments: int
+    remaining_installments: int
+    outstanding_amount: Decimal
+    next_installment: LoanInstallment | None
+    end_date: date
 
 
 @dataclass(frozen=True, slots=True)
@@ -902,6 +927,31 @@ class FinanceRepository:
             )
         ):
             bill.status, bill.paid_at, bill.transaction_id = "pending", None, None
+        loan_installments = list(
+            self.session.scalars(
+                select(LoanInstallment)
+                .where(
+                    LoanInstallment.user_id == uid,
+                    LoanInstallment.transaction_id.in_(record_ids),
+                    LoanInstallment.deleted_at.is_(None),
+                )
+                .with_for_update()
+            )
+        )
+        affected_loan_ids: set[uuid.UUID] = set()
+        for installment in loan_installments:
+            installment.status = (
+                "overdue"
+                if installment.due_date < datetime.now(timezone.utc).date()
+                else "pending"
+            )
+            installment.paid_at, installment.transaction_id = None, None
+            affected_loan_ids.add(installment.loan_id)
+        if affected_loan_ids:
+            for loan in self.session.scalars(
+                select(Loan).where(Loan.id.in_(affected_loan_ids)).with_for_update()
+            ):
+                loan.status = "active"
         paid_invoices = list(
             self.session.scalars(
                 select(CreditCardInvoice)
@@ -923,6 +973,25 @@ class FinanceRepository:
                 if today > invoice.closing_date
                 else "open"
             )
+            reopened_installments = list(
+                self.session.scalars(
+                    select(Installment).where(
+                        Installment.invoice_id == invoice.id,
+                        Installment.deleted_at.is_(None),
+                        Installment.status == "paid",
+                    )
+                )
+            )
+            reopened_transaction_ids = [
+                item.transaction_id for item in reopened_installments if item.transaction_id
+            ]
+            for installment in reopened_installments:
+                installment.status = "posted"
+            if reopened_transaction_ids:
+                for transaction in self.session.scalars(
+                    select(Transaction).where(Transaction.id.in_(reopened_transaction_ids))
+                ):
+                    transaction.status, transaction.paid_at = "pending", None
         self.session.flush()
         return records
 
@@ -940,7 +1009,7 @@ class FinanceRepository:
             Transaction.competence_date < end,
             Transaction.status.in_(("paid", "pending")),
             Transaction.transaction_type.in_(("income", "expense")),
-            Transaction.source != "invoice_payment",
+            Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
         )
         row = self.session.execute(
             select(
@@ -1010,7 +1079,7 @@ class FinanceRepository:
                 Transaction.competence_date < _next_month(last),
                 Transaction.status.in_(("paid", "pending")),
                 Transaction.transaction_type.in_(("income", "expense")),
-                Transaction.source != "invoice_payment",
+                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
             )
             .group_by(year_expr, month_expr)
             .order_by(year_expr, month_expr)
@@ -1056,7 +1125,7 @@ class FinanceRepository:
                 Transaction.deleted_at.is_(None),
                 Transaction.transaction_type == "expense",
                 Transaction.status.in_(("paid", "pending")),
-                Transaction.source != "invoice_payment",
+                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
                 Transaction.competence_date >= start_date,
                 Transaction.competence_date <= end_date,
             )
@@ -1090,7 +1159,7 @@ class FinanceRepository:
                 Transaction.deleted_at.is_(None),
                 Transaction.transaction_type == "expense",
                 Transaction.status.in_(("paid", "pending")),
-                Transaction.source != "invoice_payment",
+                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
                 Transaction.competence_date >= start_date,
                 Transaction.competence_date <= end_date,
             )
@@ -1308,8 +1377,292 @@ class FinanceRepository:
         invoice.status = "paid"
         invoice.paid_at = datetime.now(timezone.utc)
         invoice.payment_transaction_id = payment.id
+        invoice_installments = list(
+            self.session.scalars(
+                select(Installment).where(
+                    Installment.invoice_id == invoice.id,
+                    Installment.deleted_at.is_(None),
+                    Installment.status.not_in(("cancelled", "paid")),
+                )
+            )
+        )
+        transaction_ids = [item.transaction_id for item in invoice_installments if item.transaction_id]
+        for item in invoice_installments:
+            item.status = "paid"
+        if transaction_ids:
+            transactions = list(
+                self.session.scalars(
+                    select(Transaction).where(Transaction.id.in_(transaction_ids))
+                )
+            )
+            for transaction in transactions:
+                transaction.status = "paid"
+                transaction.paid_at = invoice.paid_at
         self.session.flush()
         return payment
+
+    def list_installment_plans(
+        self,
+        user_id: uuid.UUID | str,
+        *,
+        credit_card_id: uuid.UUID | str | None = None,
+        active_only: bool = True,
+    ) -> list[InstallmentPlanSummary]:
+        """Group card installments and expose how many monthly payments remain."""
+
+        query = (
+            select(Installment)
+            .options(joinedload(Installment.invoice))
+            .where(
+                Installment.user_id == _as_uuid(user_id),
+                Installment.deleted_at.is_(None),
+                Installment.status != "cancelled",
+            )
+        )
+        if credit_card_id is not None:
+            query = query.where(Installment.credit_card_id == _as_uuid(credit_card_id))
+        rows = list(
+            self.session.scalars(
+                query.order_by(
+                    Installment.installment_group_id,
+                    Installment.installment_number,
+                )
+            )
+        )
+        grouped: dict[uuid.UUID, list[Installment]] = {}
+        for item in rows:
+            grouped.setdefault(item.installment_group_id, []).append(item)
+        result: list[InstallmentPlanSummary] = []
+        for group_id, items in grouped.items():
+            def is_paid(item: Installment) -> bool:
+                return item.status == "paid" or getattr(item.invoice, "status", None) == "paid"
+
+            remaining = [item for item in items if not is_paid(item)]
+            if active_only and not remaining:
+                continue
+            result.append(
+                InstallmentPlanSummary(
+                    group_id=group_id,
+                    description=items[0].description,
+                    credit_card_id=items[0].credit_card_id,
+                    total_installments=max(item.installment_count for item in items),
+                    paid_installments=sum(is_paid(item) for item in items),
+                    remaining_installments=len(remaining),
+                    remaining_amount=_money(sum((item.amount for item in remaining), ZERO)),
+                    next_due_date=min((item.due_date for item in remaining), default=None),
+                    end_date=max(item.due_date for item in items),
+                )
+            )
+        return sorted(
+            result,
+            key=lambda item: (item.next_due_date or date.max, item.description.casefold()),
+        )
+
+    # Loans ----------------------------------------------------------------------
+    def create_loan(
+        self,
+        user_id: uuid.UUID | str,
+        name: str,
+        principal_amount: Decimal | int | str,
+        total_amount: Decimal | int | str,
+        total_installments: int,
+        first_due_date: date,
+        *,
+        lender: str | None = None,
+        paid_installments: int = 0,
+        account_id: uuid.UUID | str | None = None,
+        category_id: uuid.UUID | str | None = None,
+        interest_rate: Decimal | int | str | None = None,
+        record_disbursement: bool = True,
+        disbursement_date: date | None = None,
+        notes: str | None = None,
+    ) -> Loan:
+        from services.loan_service import generate_loan_schedule
+
+        uid = _as_uuid(user_id)
+        principal, payable = _money(principal_amount), _money(total_amount)
+        installment_total, paid_count = int(total_installments), int(paid_installments)
+        if not name.strip():
+            raise ValidationError("Informe um nome para o empréstimo.")
+        if principal <= ZERO or payable <= ZERO:
+            raise ValidationError("Os valores do empréstimo devem ser maiores que zero.")
+        if payable < principal:
+            raise ValidationError("O total a pagar não pode ser menor que o valor recebido.")
+        try:
+            schedule = generate_loan_schedule(
+                payable,
+                installment_total,
+                first_due_date,
+                paid_installments=paid_count,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(str(exc)) from exc
+        account_ref = self._owned_reference(Account, account_id, uid)
+        category_ref = self._owned_reference(Category, category_id, uid)
+        if record_disbursement and account_ref is None:
+            raise ValidationError("Selecione a conta que recebeu o empréstimo.")
+        normalized_rate = None
+        if interest_rate is not None:
+            try:
+                normalized_rate = Decimal(str(interest_rate)).quantize(Decimal("0.0001"))
+            except Exception as exc:
+                raise ValidationError("Taxa de juros inválida.") from exc
+            if normalized_rate < ZERO:
+                raise ValidationError("A taxa de juros não pode ser negativa.")
+        disbursement = None
+        if record_disbursement:
+            received_on = disbursement_date or datetime.now(timezone.utc).date()
+            disbursement = self.create_transaction(
+                uid,
+                f"Empréstimo recebido · {name.strip()}",
+                principal,
+                "income",
+                received_on,
+                competence_date=received_on,
+                account_id=account_ref,
+                payment_method="transfer",
+                notes=notes,
+                source="loan_disbursement",
+            )
+        loan = self.create(
+            Loan,
+            user_id=uid,
+            name=name.strip(),
+            lender=lender.strip() if lender and lender.strip() else None,
+            principal_amount=principal,
+            total_amount=payable,
+            total_installments=installment_total,
+            first_due_date=first_due_date,
+            interest_rate=normalized_rate,
+            account_id=account_ref,
+            category_id=category_ref,
+            disbursement_transaction_id=getattr(disbursement, "id", None),
+            status="paid" if paid_count == installment_total else "active",
+            notes=notes,
+        )
+        now = datetime.now(timezone.utc)
+        for item in schedule:
+            self.create(
+                LoanInstallment,
+                user_id=uid,
+                loan_id=loan.id,
+                installment_number=item.number,
+                amount=item.amount,
+                due_date=item.due_date,
+                status="paid" if item.initially_paid else "pending",
+                paid_at=now if item.initially_paid else None,
+            )
+        self.session.flush()
+        return loan
+
+    def list_loans(
+        self,
+        user_id: uuid.UUID | str,
+        *,
+        statuses: Sequence[str] | None = None,
+    ) -> list[Loan]:
+        query = select(Loan).where(
+            Loan.user_id == _as_uuid(user_id), Loan.deleted_at.is_(None)
+        )
+        if statuses:
+            query = query.where(Loan.status.in_(tuple(statuses)))
+        return list(self.session.scalars(query.order_by(Loan.created_at.desc())))
+
+    def list_loan_installments(
+        self,
+        user_id: uuid.UUID | str,
+        *,
+        loan_id: uuid.UUID | str | None = None,
+        statuses: Sequence[str] | None = None,
+    ) -> list[LoanInstallment]:
+        query = select(LoanInstallment).join(Loan).where(
+            LoanInstallment.user_id == _as_uuid(user_id),
+            LoanInstallment.deleted_at.is_(None),
+            Loan.deleted_at.is_(None),
+        )
+        if loan_id is not None:
+            query = query.where(LoanInstallment.loan_id == _as_uuid(loan_id))
+        if statuses:
+            query = query.where(LoanInstallment.status.in_(tuple(statuses)))
+        return list(
+            self.session.scalars(
+                query.order_by(LoanInstallment.due_date, LoanInstallment.installment_number)
+            )
+        )
+
+    def list_loan_summaries(
+        self, user_id: uuid.UUID | str, *, active_only: bool = False
+    ) -> list[LoanSummary]:
+        statuses = ("active",) if active_only else None
+        result: list[LoanSummary] = []
+        for loan in self.list_loans(user_id, statuses=statuses):
+            installments = self.list_loan_installments(user_id, loan_id=loan.id)
+            open_items = [
+                item for item in installments if item.status not in ("paid", "cancelled")
+            ]
+            result.append(
+                LoanSummary(
+                    loan=loan,
+                    paid_installments=sum(item.status == "paid" for item in installments),
+                    remaining_installments=len(open_items),
+                    outstanding_amount=_money(sum((item.amount for item in open_items), ZERO)),
+                    next_installment=min(open_items, key=lambda item: item.due_date)
+                    if open_items
+                    else None,
+                    end_date=max((item.due_date for item in installments), default=loan.first_due_date),
+                )
+            )
+        return result
+
+    def pay_loan_installment(
+        self,
+        user_id: uuid.UUID | str,
+        installment_id: uuid.UUID | str,
+        *,
+        account_id: uuid.UUID | str | None = None,
+        payment_date: date | None = None,
+        payment_method: str = "boleto",
+    ) -> Transaction:
+        uid = _as_uuid(user_id)
+        installment = self.require(
+            LoanInstallment, installment_id, user_id=uid, for_update=True
+        )
+        if installment.status == "paid":
+            raise ValidationError("Esta parcela já foi paga.")
+        if installment.status == "cancelled":
+            raise ValidationError("Esta parcela foi cancelada.")
+        loan = self.require(Loan, installment.loan_id, user_id=uid, for_update=True)
+        selected_account = _as_uuid(account_id) if account_id else loan.account_id
+        if selected_account is None:
+            raise ValidationError("Selecione a conta usada no pagamento.")
+        paid_on = payment_date or datetime.now(timezone.utc).date()
+        transaction = self.create_transaction(
+            uid,
+            f"Parcela {installment.installment_number}/{loan.total_installments} · {loan.name}",
+            installment.amount,
+            "expense",
+            paid_on,
+            competence_date=installment.due_date,
+            category_id=loan.category_id,
+            account_id=selected_account,
+            payment_method=payment_method,
+            source="loan_payment",
+        )
+        installment.status = "paid"
+        installment.paid_at = datetime.now(timezone.utc)
+        installment.transaction_id = transaction.id
+        remaining = self.session.scalar(
+            select(func.count(LoanInstallment.id)).where(
+                LoanInstallment.loan_id == loan.id,
+                LoanInstallment.id != installment.id,
+                LoanInstallment.deleted_at.is_(None),
+                LoanInstallment.status.not_in(("paid", "cancelled")),
+            )
+        )
+        if not remaining:
+            loan.status = "paid"
+        self.session.flush()
+        return transaction
 
     # Bills and recurring ----------------------------------------------------------
     def create_bill(
@@ -1842,13 +2195,29 @@ class FinanceRepository:
             )
             or ZERO
         )
-        assets, liabilities = accounts + registered_assets, registered_liabilities + invoices
+        loans = _money(
+            self.session.scalar(
+                select(func.coalesce(func.sum(LoanInstallment.amount), ZERO))
+                .join(Loan, Loan.id == LoanInstallment.loan_id)
+                .where(
+                    LoanInstallment.user_id == uid,
+                    LoanInstallment.deleted_at.is_(None),
+                    LoanInstallment.status.in_(("pending", "overdue")),
+                    Loan.deleted_at.is_(None),
+                    Loan.status == "active",
+                )
+            )
+            or ZERO
+        )
+        assets = accounts + registered_assets
+        liabilities = registered_liabilities + invoices + loans
         return {
             "accounts": accounts,
             "registered_assets": registered_assets,
             "assets": assets,
             "registered_liabilities": registered_liabilities,
             "card_invoices": invoices,
+            "loans": loans,
             "liabilities": liabilities,
             "net_worth": assets - liabilities,
         }
@@ -1922,6 +2291,28 @@ class FinanceRepository:
                     "record": invoice,
                 }
             )
+        installments = self.list_loan_installments(
+            user_id, statuses=("pending", "overdue")
+        )
+        loan_by_id = {loan.id: loan for loan in self.list_loans(user_id)}
+        for installment in installments:
+            if not start_date <= installment.due_date <= end_date:
+                continue
+            loan = loan_by_id.get(installment.loan_id)
+            if loan is None:
+                continue
+            events.append(
+                {
+                    "kind": "loan",
+                    "date": installment.due_date,
+                    "description": (
+                        f"{loan.name} · parcela {installment.installment_number}/"
+                        f"{loan.total_installments}"
+                    ),
+                    "amount": installment.amount,
+                    "record": installment,
+                }
+            )
         events.sort(key=lambda item: (item["date"], item["kind"]))
         return events[: max(1, min(limit, 200))]
 
@@ -1953,6 +2344,8 @@ __all__ = [
     "BackupStats",
     "CardSummary",
     "FinanceRepository",
+    "InstallmentPlanSummary",
+    "LoanSummary",
     "MonthlySummary",
     "Page",
     "RecordNotFoundError",

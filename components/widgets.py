@@ -202,6 +202,8 @@ def transaction_type_input(
         "receita": "Receita",
         "transferencia": "Transferência",
         "transferência": "Transferência",
+        "emprestimo": "Empréstimo",
+        "empréstimo": "Empréstimo",
     }
     formatter: Callable[[str], str] = lambda item: labels.get(item.casefold(), item.title())
     segmented = getattr(st, "segmented_control", None)

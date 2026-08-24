@@ -390,7 +390,12 @@ def _include_for_basis(transaction: Any, date_basis: str) -> bool:
         return transaction_affects_cash_balance(transaction)
     if basis in {"competence", "competencia", "accrual"}:
         source = normalize_token(get_value(transaction, "source", "origem", default=""))
-        return source not in {"invoice_payment", "pagamento_fatura"}
+        return source not in {
+            "invoice_payment",
+            "pagamento_fatura",
+            "loan_disbursement",
+            "emprestimo_recebido",
+        }
     raise ValueError("date_basis deve ser 'competence' ou 'cash'.")
 
 

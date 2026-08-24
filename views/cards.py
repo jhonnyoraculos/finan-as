@@ -182,6 +182,40 @@ def _render_invoices(repository: Any, user: Any, card: Any, accounts: list[Any])
             )
 
 
+def _render_installment_plans(repository: Any, user: Any, card: Any) -> None:
+    plans = repository.list_installment_plans(
+        user.id, credit_card_id=card.id, active_only=True
+    )
+    render_section_header(
+        "Compras parceladas",
+        subtitle="Veja quantas parcelas e meses ainda faltam",
+    )
+    if not plans:
+        st.caption("Nenhuma compra parcelada ativa neste cartão.")
+        return
+    for plan in plans:
+        progress = (
+            plan.paid_installments / plan.total_installments
+            if plan.total_installments
+            else 0
+        )
+        render_transaction_card(
+            plan.description,
+            plan.remaining_amount,
+            transaction_type="expense",
+            date_label=(
+                f"Próxima {format_brl_date(plan.next_due_date)}"
+                if plan.next_due_date
+                else "Concluída"
+            ),
+            method=f"Termina em {plan.end_date:%m/%Y}",
+            category=f"Faltam {plan.remaining_installments} mês(es)",
+            installments=f"{plan.paid_installments}/{plan.total_installments} pagas",
+            hidden=privacy_enabled(),
+        )
+        st.progress(min(1.0, max(0.0, progress)))
+
+
 def _render_manage_card(repository: Any, user: Any, cards: list[Any], accounts: list[Any]) -> None:
     if not cards:
         return
@@ -266,6 +300,7 @@ def render(repository: Any, user: Any) -> None:
                 key="card_details_select",
                 label_visibility="collapsed",
             )
+            _render_installment_plans(repository, user, selected)
             _render_invoices(repository, user, selected, accounts)
     with add_tab:
         _render_card_form(repository, user, accounts)

@@ -667,14 +667,14 @@ textarea:focus-visible {
 /* Desktop: navigation becomes a quiet, compact left rail. */
 @media (min-width: 900.01px) {
     .block-container {
-        padding: 1.4rem 1.8rem 3rem 7.3rem;
+        padding: 1.4rem 1.8rem 3rem 9rem;
     }
     .st-key-finance_navigation {
         top: 50%;
         right: auto;
         bottom: auto;
         left: 0.9rem;
-        width: 82px;
+        width: 116px;
         padding: 0.55rem;
         transform: translateY(-50%);
     }
@@ -685,6 +685,13 @@ textarea:focus-visible {
     .st-key-finance_navigation [data-testid="column"] {
         width: 100% !important;
         flex: 1 1 auto !important;
+    }
+    .st-key-finance_navigation .stButton > button,
+    .st-key-finance_navigation .stButton > button p {
+        white-space: pre-line !important;
+        word-break: normal !important;
+        overflow-wrap: normal !important;
+        hyphens: none !important;
     }
     .st-key-finance_navigation [data-testid="column"]:nth-child(3) .stButton > button {
         margin-top: 0;

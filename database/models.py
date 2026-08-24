@@ -389,6 +389,87 @@ class Installment(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     credit_card: Mapped[CreditCard | None] = relationship()
 
 
+class Loan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """A financing contract whose monthly schedule is tracked by the app."""
+
+    __tablename__ = "loans"
+    __table_args__ = (
+        Index("ix_loans_user_status", "user_id", "status"),
+        CheckConstraint("principal_amount > 0", name="ck_loan_principal_positive"),
+        CheckConstraint("total_amount > 0", name="ck_loan_total_positive"),
+        CheckConstraint("total_installments >= 1", name="ck_loan_installments_positive"),
+        CheckConstraint(
+            "status IN ('active','paid','cancelled')", name="ck_loan_status"
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(140), nullable=False)
+    lender: Mapped[str | None] = mapped_column(String(140), nullable=True)
+    principal_amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    total_installments: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    interest_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+    )
+    disbursement_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    user: Mapped[User] = relationship()
+    account: Mapped[Account | None] = relationship()
+    category: Mapped[Category | None] = relationship()
+    disbursement_transaction: Mapped[Transaction | None] = relationship()
+    installments: Mapped[list[LoanInstallment]] = relationship(
+        back_populates="loan", order_by="LoanInstallment.installment_number"
+    )
+
+
+class LoanInstallment(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """One monthly payment belonging to a :class:`Loan`."""
+
+    __tablename__ = "loan_installments"
+    __table_args__ = (
+        UniqueConstraint("loan_id", "installment_number", name="uq_loan_installment_number"),
+        Index("ix_loan_installments_user_due", "user_id", "due_date"),
+        Index("ix_loan_installments_loan_status", "loan_id", "status"),
+        CheckConstraint("amount > 0", name="ck_loan_installment_amount_positive"),
+        CheckConstraint("installment_number >= 1", name="ck_loan_installment_number"),
+        CheckConstraint(
+            "status IN ('pending','paid','overdue','cancelled')",
+            name="ck_loan_installment_status",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    loan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("loans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    installment_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
+
+    user: Mapped[User] = relationship()
+    loan: Mapped[Loan] = relationship(back_populates="installments")
+    transaction: Mapped[Transaction | None] = relationship()
+
+
 class Bill(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "bills"
     __table_args__ = (
@@ -743,6 +824,8 @@ __all__ = [
     "GoalContribution",
     "Installment",
     "Liability",
+    "Loan",
+    "LoanInstallment",
     "NetWorthSnapshot",
     "RecurringTransaction",
     "Subscription",

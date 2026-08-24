@@ -28,6 +28,8 @@ TYPE_MAP = {
     "receita": "income",
     "transferencia": "transfer",
     "transferência": "transfer",
+    "emprestimo": "loan",
+    "empréstimo": "loan",
 }
 
 
@@ -105,6 +107,143 @@ def _render_favorites(repository: Any, user: Any) -> None:
         )
 
 
+def _render_loan_form(repository: Any, user: Any) -> None:
+    """Render the dedicated monthly-loan entry flow."""
+
+    from services.loan_service import generate_loan_schedule
+    from utils.currency import format_brl_currency
+
+    accounts = repository.list_accounts(user.id)
+    categories = repository.list_categories(user.id, kind="expense")
+    st.info(
+        "Cadastre o valor recebido e o total financiado. O app cria todas as "
+        "parcelas mensais e acompanha quanto falta."
+    )
+    with st.form("quick_new_loan"):
+        name = st.text_input(
+            "Nome do empréstimo",
+            placeholder="Ex.: Empréstimo pessoal",
+            max_chars=140,
+        )
+        lender = st.text_input("Banco ou credor", max_chars=140)
+        received_col, total_col = st.columns(2)
+        with received_col:
+            principal = money_input(
+                "Valor recebido",
+                key="quick_loan_principal",
+                minimum=Decimal("0.01"),
+            )
+        with total_col:
+            total = money_input(
+                "Total a pagar",
+                key="quick_loan_total",
+                minimum=Decimal("0.01"),
+            )
+        count_col, paid_col = st.columns(2)
+        with count_col:
+            installment_count = st.number_input(
+                "Quantidade de parcelas",
+                min_value=1,
+                max_value=600,
+                value=12,
+                step=1,
+            )
+        with paid_col:
+            paid_installments = st.number_input(
+                "Parcelas já pagas",
+                min_value=0,
+                max_value=int(installment_count),
+                value=0,
+                step=1,
+            )
+        first_due = st.date_input(
+            "Primeiro vencimento",
+            value=add_months(date.today(), 1),
+            format="DD/MM/YYYY",
+        )
+        account = select_model(
+            "Conta que recebeu / pagará as parcelas",
+            accounts,
+            key="quick_loan_account",
+            optional=True,
+        )
+        category = select_model(
+            "Categoria das parcelas",
+            categories,
+            key="quick_loan_category",
+            optional=True,
+        )
+        record_receipt = st.checkbox(
+            "Registrar o valor recebido no saldo da conta",
+            value=True,
+        )
+        receipt_date = st.date_input(
+            "Data do recebimento",
+            value=date.today(),
+            format="DD/MM/YYYY",
+        )
+        interest_rate = st.number_input(
+            "Taxa de juros (% ao mês, opcional)",
+            min_value=0.0,
+            max_value=1000.0,
+            value=0.0,
+            step=0.01,
+            format="%.2f",
+        )
+        notes = st.text_area("Observação", max_chars=2000)
+        if total is not None and total > 0:
+            try:
+                schedule = generate_loan_schedule(
+                    total,
+                    int(installment_count),
+                    first_due,
+                    paid_installments=int(paid_installments),
+                )
+                remaining = int(installment_count) - int(paid_installments)
+                st.caption(
+                    f"{installment_count}x de aproximadamente "
+                    f"{format_brl_currency(schedule[0].amount)} · "
+                    f"faltam {remaining} mês(es) · termina em "
+                    f"{schedule[-1].due_date:%m/%Y}"
+                )
+            except ValueError:
+                pass
+        submitted = st.form_submit_button(
+            "Adicionar empréstimo", type="primary", use_container_width=True
+        )
+    if not submitted:
+        return
+    if not name.strip() or principal is None or total is None:
+        st.warning("Informe nome, valor recebido e total a pagar.")
+        return
+    if record_receipt and account is None:
+        st.warning("Selecione a conta que recebeu o empréstimo.")
+        return
+    try:
+        with repository.session.begin_nested():
+            repository.create_loan(
+                user.id,
+                name.strip(),
+                principal,
+                total,
+                int(installment_count),
+                first_due,
+                lender=lender.strip() or None,
+                paid_installments=int(paid_installments),
+                account_id=getattr(account, "id", None),
+                category_id=getattr(category, "id", None),
+                interest_rate=Decimal(str(interest_rate)),
+                record_disbursement=record_receipt,
+                disbursement_date=receipt_date,
+                notes=notes.strip() or None,
+            )
+        notify_success("Empréstimo adicionado com o cronograma mensal")
+        st.session_state["_clear_quick_on_load"] = True
+        safe_rerun()
+    except Exception as exc:
+        friendly_error("Não foi possível adicionar o empréstimo.", exc)
+
+
 def render(repository: Any, user: Any) -> None:
     if st.session_state.pop("_clear_quick_on_load", False):
         _clear_form()
@@ -115,8 +254,14 @@ def render(repository: Any, user: Any) -> None:
     )
     _render_favorites(repository, user)
 
-    selected_type = transaction_type_input(key="quick_type")
+    selected_type = transaction_type_input(
+        key="quick_type",
+        options=("despesa", "receita", "transferencia", "emprestimo"),
+    )
     transaction_type = TYPE_MAP[selected_type]
+    if transaction_type == "loan":
+        _render_loan_form(repository, user)
+        return
     amount = money_input(
         "Valor",
         value=Decimal("0"),

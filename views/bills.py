@@ -16,7 +16,7 @@ from components.cards import (
 )
 from components.dialogs import confirmation_button
 from components.widgets import money_input, notify_success
-from database.models import Bill, RecurringTransaction, Subscription
+from database.models import Bill, Loan, RecurringTransaction, Subscription
 from services.application_service import materialize_recurring_items
 from utils.dates import format_brl_date
 from views.common import (
@@ -389,18 +389,161 @@ def _render_subscriptions(repository: Any, user: Any, accounts: list[Any], categ
         )
 
 
+def _render_loans(repository: Any, user: Any, accounts: list[Any]) -> None:
+    today = date.today()
+    open_installments = repository.list_loan_installments(
+        user.id, statuses=("pending", "overdue")
+    )
+    changed = False
+    for installment in open_installments:
+        expected = "overdue" if installment.due_date < today else "pending"
+        if installment.status != expected:
+            installment.status = expected
+            changed = True
+    if changed:
+        repository.session.flush()
+
+    summaries = repository.list_loan_summaries(user.id)
+    active = [item for item in summaries if item.remaining_installments > 0]
+    outstanding = sum((item.outstanding_amount for item in active), Decimal("0"))
+    next_30 = sum(
+        (
+            installment.amount
+            for installment in open_installments
+            if installment.due_date <= today + timedelta(days=30)
+        ),
+        Decimal("0"),
+    )
+    debt_col, upcoming_col = st.columns(2)
+    with debt_col:
+        render_metric_card(
+            "Saldo dos empréstimos",
+            outstanding,
+            tone="coral",
+            hidden=privacy_enabled(),
+        )
+    with upcoming_col:
+        render_metric_card(
+            "Parcelas em 30 dias",
+            next_30,
+            tone="yellow",
+            hidden=privacy_enabled(),
+        )
+
+    render_section_header(
+        "Empréstimos mensais",
+        subtitle="Parcelas pagas, meses restantes e saldo devedor",
+    )
+    if not summaries:
+        st.info("Nenhum empréstimo cadastrado. Use Adicionar → Empréstimo para começar.")
+        return
+
+    for summary in summaries:
+        loan = summary.loan
+        next_item = summary.next_installment
+        progress = (
+            summary.paid_installments / loan.total_installments
+            if loan.total_installments
+            else 0
+        )
+        render_bill_card(
+            loan.name,
+            summary.outstanding_amount,
+            due_label=(
+                f"Próxima parcela {format_brl_date(next_item.due_date)}"
+                if next_item
+                else "Empréstimo quitado"
+            ),
+            status=(
+                f"{summary.paid_installments}/{loan.total_installments} pagas · "
+                f"faltam {summary.remaining_installments} mês(es)"
+            ),
+            category=f"Termina em {summary.end_date:%m/%Y}",
+            account=loan.lender,
+            icon="↘",
+            hidden=privacy_enabled(),
+        )
+        st.progress(min(1.0, max(0.0, progress)))
+
+    if not active:
+        st.success("Todos os empréstimos estão quitados.")
+        return
+    selected = st.selectbox(
+        "Empréstimo para agir",
+        active,
+        format_func=lambda item: (
+            f"{item.loan.name} · próxima {item.next_installment.due_date:%d/%m/%Y}"
+        ),
+        key="loan_action_select",
+    )
+    payment_account = select_model(
+        "Pagar próxima parcela com",
+        accounts,
+        key=f"loan_payment_account_{selected.loan.id}",
+        default_id=selected.loan.account_id,
+    )
+    method = st.selectbox(
+        "Forma de pagamento",
+        ("pix", "debit", "boleto", "cash", "other"),
+        format_func=PAYMENT_METHODS.get,
+        key=f"loan_payment_method_{selected.loan.id}",
+    )
+    confirmation_button(
+        "Pagar próxima parcela",
+        key=f"pay_loan_{selected.next_installment.id}",
+        title="Confirmar pagamento da parcela?",
+        message=(
+            f"Será registrada a parcela {selected.next_installment.installment_number}/"
+            f"{selected.loan.total_installments} de {selected.loan.name}."
+        ),
+        on_confirm=repository.pay_loan_installment,
+        confirm_args=(user.id, selected.next_installment.id),
+        confirm_kwargs={
+            "account_id": getattr(payment_account, "id", None),
+            "payment_date": today,
+            "payment_method": method,
+        },
+        success_message="Parcela do empréstimo paga",
+        use_container_width=True,
+    )
+    with st.expander("Ver cronograma ou arquivar"):
+        installments = repository.list_loan_installments(
+            user.id, loan_id=selected.loan.id
+        )
+        for installment in installments:
+            marker = "✓" if installment.status == "paid" else "○"
+            st.caption(
+                f"{marker} {installment.installment_number}/"
+                f"{selected.loan.total_installments} · "
+                f"{format_brl_date(installment.due_date)} · "
+                f"{status_label(installment.status)}"
+            )
+        confirmation_button(
+            "Arquivar empréstimo",
+            key=f"archive_loan_{selected.loan.id}",
+            title="Arquivar empréstimo?",
+            message="O cronograma deixa de aparecer, mas o histórico permanece no banco.",
+            on_confirm=repository.soft_delete,
+            confirm_args=(Loan, selected.loan.id),
+            confirm_kwargs={"user_id": user.id},
+            success_message="Empréstimo arquivado",
+        )
+
+
 def render(repository: Any, user: Any) -> None:
     page_header("Contas e assinaturas", "Vencimentos previsíveis, sem alertas agressivos.", eyebrow="Próximos compromissos")
     accounts = repository.list_accounts(user.id)
     categories = repository.list_categories(user.id, kind="expense")
     cards = repository.list_credit_cards(user.id)
-    open_tab, add_tab, recurring_tab, subscription_tab = st.tabs(
-        ("Em aberto", "Adicionar", "Recorrentes", "Assinaturas")
+    open_tab, loan_tab, add_tab, recurring_tab, subscription_tab = st.tabs(
+        ("Em aberto", "Empréstimos", "Adicionar", "Recorrentes", "Assinaturas")
     )
     with open_tab:
         _render_open_bills(repository, user, accounts, categories)
     with add_tab:
         _render_add_bill(repository, user, accounts, categories)
+    with loan_tab:
+        _render_loans(repository, user, accounts)
     with recurring_tab:
         _render_recurring(repository, user, accounts, categories)
     with subscription_tab:

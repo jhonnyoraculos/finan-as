@@ -10,7 +10,9 @@ O projeto mantém compras de cartão separadas do saldo bancário: a compra entr
 - Receitas, despesas, PIX, dinheiro, débito, boleto e transferências
 - Cadastro rápido com parsing de moeda brasileira
 - Cartões, faturas abertas/fechadas/pagas e limite disponível
-- Compras parceladas com ajuste exato de centavos na última parcela
+- Compras parceladas com meses restantes, progresso e data de término
+- Empréstimos mensais com valor recebido, total financiado, parcelas já pagas,
+  saldo devedor, cronograma e baixa da próxima parcela
 - Contas a pagar, recorrências e assinaturas
 - Histórico paginado, pesquisa global, filtros, edição e soft delete
 - Dashboard, relatório mensal, gráficos e indicadores locais
@@ -127,7 +129,7 @@ A função `seed_demo_data()` é idempotente e marca as movimentações com `sou
 python -m pytest
 ```
 
-A suíte cobre parsing BRL, parcelamento, competência/fechamento de fatura, saldo, transferências, recorrências, análises e previsão.
+A suíte cobre parsing BRL, parcelamento de cartão e empréstimo, competência/fechamento de fatura, saldo, transferências, recorrências, análises e previsão.
 
 ## Estrutura
 
@@ -157,6 +159,8 @@ A suíte cobre parsing BRL, parcelamento, competência/fechamento de fatura, sal
 - Cada parcela vira apenas o seu valor mensal. A soma das parcelas sempre é igual ao total original.
 - Compra em cartão não afeta a conta bancária; `pay_invoice()` cria a saída de caixa.
 - Pagamento da fatura é excluído das despesas por competência para não duplicar gastos.
+- O empréstimo recebido altera o saldo da conta, mas não é tratado como renda; cada
+  parcela paga é uma despesa e reduz o saldo devedor no patrimônio líquido.
 - Transferências possuem um grupo e duas pontas; não alteram receitas ou despesas gerais.
 - Registros financeiros importantes usam `deleted_at` e podem ser restaurados futuramente.
 
