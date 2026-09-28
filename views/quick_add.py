@@ -115,8 +115,8 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
 
     categories = repository.list_categories(user.id, kind="expense")
     st.info(
-        "Cadastre o valor recebido e o total financiado. O app cria todas as "
-        "parcelas mensais e acompanha quanto falta."
+        "Cadastre o valor contratado e o total financiado. O empréstimo fica "
+        "separado do saldo disponível; somente as parcelas pagas reduzem a conta."
     )
     with st.form("quick_new_loan"):
         name = st.text_input(
@@ -128,7 +128,7 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
         received_col, total_col = st.columns(2)
         with received_col:
             principal = money_input(
-                "Valor recebido",
+                "Valor contratado",
                 key="quick_loan_principal",
                 minimum=Decimal("0.01"),
             )
@@ -161,7 +161,7 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
             format="DD/MM/YYYY",
         )
         account = select_model(
-            "Conta que recebeu / pagará as parcelas",
+            "Conta que pagará as parcelas",
             accounts,
             key="quick_loan_account",
             optional=True,
@@ -171,15 +171,6 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
             categories,
             key="quick_loan_category",
             optional=True,
-        )
-        record_receipt = st.checkbox(
-            "Registrar o valor recebido no saldo da conta",
-            value=True,
-        )
-        receipt_date = st.date_input(
-            "Data do recebimento",
-            value=date.today(),
-            format="DD/MM/YYYY",
         )
         interest_rate = st.number_input(
             "Taxa de juros (% ao mês, opcional)",
@@ -213,10 +204,7 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
     if not submitted:
         return
     if not name.strip() or principal is None or total is None:
-        st.warning("Informe nome, valor recebido e total a pagar.")
-        return
-    if record_receipt and account is None:
-        st.warning("Selecione a conta que recebeu o empréstimo.")
+        st.warning("Informe nome, valor contratado e total a pagar.")
         return
     try:
         with repository.session.begin_nested():
@@ -232,8 +220,7 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
                 account_id=getattr(account, "id", None),
                 category_id=getattr(category, "id", None),
                 interest_rate=Decimal(str(interest_rate)),
-                record_disbursement=record_receipt,
-                disbursement_date=receipt_date,
+                record_disbursement=False,
                 notes=notes.strip() or None,
             )
         notify_success("Empréstimo adicionado com o cronograma mensal")

@@ -21,7 +21,7 @@ def test_create_and_pay_monthly_loan() -> None:
     try:
         user = repository.create_user("Teste")
         account = repository.create_account(user.id, "Conta")
-        repository.create_loan(
+        loan = repository.create_loan(
             user.id,
             "Empréstimo pessoal",
             Decimal("1000.00"),
@@ -34,6 +34,7 @@ def test_create_and_pay_monthly_loan() -> None:
         )
 
         summary = repository.list_loan_summaries(user.id)[0]
+        assert loan.disbursement_transaction_id is None
         assert summary.paid_installments == 2
         assert summary.remaining_installments == 10
         assert summary.outstanding_amount == Decimal("1000.00")
@@ -48,6 +49,29 @@ def test_create_and_pay_monthly_loan() -> None:
         assert updated.paid_installments == 3
         assert updated.remaining_installments == 9
         assert repository.net_worth_summary(user.id)["loans"] == Decimal("900.00")
+    finally:
+        session.close()
+
+
+def test_loan_disbursement_never_inflates_available_balance() -> None:
+    session, repository = _repository()
+    try:
+        user = repository.create_user("Teste")
+        account = repository.create_account(user.id, "Conta")
+        loan = repository.create_loan(
+            user.id,
+            "Empréstimo pessoal",
+            Decimal("4700.00"),
+            Decimal("5200.00"),
+            10,
+            date(2026, 10, 10),
+            account_id=account.id,
+            record_disbursement=True,
+            disbursement_date=date(2026, 9, 28),
+        )
+
+        assert loan.disbursement_transaction_id is not None
+        assert repository.total_available_balance(user.id) == Decimal("0.00")
     finally:
         session.close()
 

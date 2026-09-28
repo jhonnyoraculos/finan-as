@@ -439,6 +439,7 @@ class FinanceRepository:
         tx_filters: list[Any] = [
             Transaction.deleted_at.is_(None),
             Transaction.status == "paid",
+            Transaction.source != "loan_disbursement",
             Transaction.transaction_date <= cutoff,
         ]
         effect = case(
@@ -1473,7 +1474,7 @@ class FinanceRepository:
         account_id: uuid.UUID | str | None = None,
         category_id: uuid.UUID | str | None = None,
         interest_rate: Decimal | int | str | None = None,
-        record_disbursement: bool = True,
+        record_disbursement: bool = False,
         disbursement_date: date | None = None,
         notes: str | None = None,
     ) -> Loan:
