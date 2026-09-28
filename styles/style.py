@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 BREAKPOINTS: Final[dict[str, int]] = {
     "mobile": 600,
-    "desktop": 900,
+    "desktop": 1100,
 }
 
 COLORS: Final[dict[str, str]] = {
@@ -531,6 +531,8 @@ textarea:focus-visible {
     right: max(0.7rem, env(safe-area-inset-right));
     bottom: max(0.55rem, env(safe-area-inset-bottom));
     left: max(0.7rem, env(safe-area-inset-left));
+    width: auto;
+    max-width: none;
     padding: 0.42rem 0.45rem;
     border: 1px solid rgba(255,255,255,0.11);
     border-radius: 23px;
@@ -545,11 +547,11 @@ textarea:focus-visible {
     gap: 0.18rem;
 }
 
-.st-key-finance_navigation [data-testid="column"] {
+.st-key-finance_navigation :is([data-testid="column"], [data-testid="stColumn"]) {
     min-width: 0 !important;
 }
 
-.st-key-finance_navigation .stButton > button {
+.st-key-finance_navigation button {
     min-height: 55px;
     padding: 0.25rem 0.12rem;
     border: 0;
@@ -562,14 +564,23 @@ textarea:focus-visible {
     white-space: pre-line;
 }
 
-.st-key-finance_navigation .stButton > button[kind="primary"],
+.st-key-finance_navigation button p {
+    font-size: clamp(0.64rem, 2.5vw, 0.75rem) !important;
+    line-height: inherit !important;
+    white-space: pre-line !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    hyphens: none !important;
+}
+
+.st-key-finance_navigation button[kind="primary"],
 .st-key-finance_navigation [data-testid="stBaseButton-primary"] {
     background: rgba(108,158,255,0.14);
     color: #DDE7FF;
     box-shadow: inset 0 0 0 1px rgba(108,158,255,0.18);
 }
 
-.st-key-finance_navigation [data-testid="column"]:nth-child(3) .stButton > button {
+.st-key-finance_navigation :is([data-testid="column"], [data-testid="stColumn"]):nth-child(3) button {
     min-height: 58px;
     margin-top: -0.42rem;
     border: 1px solid rgba(255,255,255,0.18);
@@ -601,7 +612,7 @@ textarea:focus-visible {
     [data-testid="stHorizontalBlock"] {
         flex-wrap: wrap;
     }
-    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    [data-testid="stHorizontalBlock"] > :is([data-testid="column"], [data-testid="stColumn"]) {
         flex: 1 1 100%;
         width: 100% !important;
     }
@@ -609,17 +620,20 @@ textarea:focus-visible {
     .st-key-finance_navigation [data-testid="stHorizontalBlock"] {
         flex-wrap: nowrap;
     }
-    .st-key-finance_navigation [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    .st-key-finance_navigation [data-testid="stHorizontalBlock"] > :is([data-testid="column"], [data-testid="stColumn"]) {
         flex: 1 1 20%;
         width: 20% !important;
     }
     .st-key-finance_topbar [data-testid="stHorizontalBlock"] {
+        width: 100%;
         flex-wrap: nowrap;
         align-items: center;
+        gap: 0.65rem;
     }
-    .st-key-finance_topbar [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        width: 50% !important;
-        flex: 1 1 50% !important;
+    .st-key-finance_topbar :is([data-testid="column"], [data-testid="stColumn"]) {
+        width: calc(50% - 0.325rem) !important;
+        min-width: 0 !important;
+        flex: 0 1 calc(50% - 0.325rem) !important;
     }
     /* Account cards stay swipeable instead of becoming a long vertical list. */
     .st-key-finance_accounts_carousel {
@@ -632,7 +646,7 @@ textarea:focus-visible {
         min-width: max-content;
         flex-wrap: nowrap;
     }
-    .st-key-finance_accounts_carousel [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    .st-key-finance_accounts_carousel [data-testid="stHorizontalBlock"] > :is([data-testid="column"], [data-testid="stColumn"]) {
         width: min(78vw, 300px) !important;
         flex: 0 0 min(78vw, 300px) !important;
     }
@@ -641,12 +655,12 @@ textarea:focus-visible {
         flex-wrap: nowrap;
         gap: 0.16rem;
     }
-    .st-key-finance_calendar_grid [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    .st-key-finance_calendar_grid [data-testid="stHorizontalBlock"] > :is([data-testid="column"], [data-testid="stColumn"]) {
         width: 14.285% !important;
         flex: 1 1 14.285% !important;
         min-width: 0 !important;
     }
-    .st-key-finance_calendar_grid .stButton > button {
+    .st-key-finance_calendar_grid button {
         min-height: 44px;
         padding: 0.2rem 0;
         font-size: 0.72rem;
@@ -654,7 +668,7 @@ textarea:focus-visible {
 }
 
 /* Tablet: still bottom navigation, with denser dashboard columns. */
-@media (min-width: 600px) and (max-width: 900px) {
+@media (min-width: 600px) and (max-width: 1099.98px) {
     .block-container {
         padding: 1rem 1.4rem calc(var(--finance-nav-height) + 2.3rem);
     }
@@ -664,36 +678,59 @@ textarea:focus-visible {
     }
 }
 
-/* Desktop: navigation becomes a quiet, compact left rail. */
-@media (min-width: 900.01px) {
+/* Desktop: a complete left rail and a fluid workspace use the available width. */
+@media (min-width: 1100px) {
+    [data-testid="stMain"] > div {
+        max-width: none;
+    }
     .block-container {
-        padding: 1.4rem 1.8rem 3rem 9rem;
+        max-width: none;
+        margin: 0;
+        padding: 1.4rem clamp(1.8rem, 3vw, 3.6rem) 3rem 15.5rem;
     }
     .st-key-finance_navigation {
         top: 50%;
         right: auto;
         bottom: auto;
-        left: 0.9rem;
-        width: 116px;
-        padding: 0.55rem;
+        left: 1rem;
+        width: 216px;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        padding: 0.7rem;
         transform: translateY(-50%);
+        scrollbar-width: thin;
     }
     .st-key-finance_navigation [data-testid="stHorizontalBlock"] {
-        flex-direction: column;
-        gap: 0.28rem;
+        width: 100%;
+        flex-direction: column !important;
+        align-items: stretch;
+        gap: 0.38rem;
     }
-    .st-key-finance_navigation [data-testid="column"] {
+    .st-key-finance_navigation [data-testid="stHorizontalBlock"] > :is([data-testid="column"], [data-testid="stColumn"]) {
         width: 100% !important;
-        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
+        align-self: stretch !important;
     }
-    .st-key-finance_navigation .stButton > button,
-    .st-key-finance_navigation .stButton > button p {
-        white-space: pre-line !important;
+    .st-key-finance_navigation :is([data-testid="stButton"], .stButton),
+    .st-key-finance_navigation button {
+        width: 100%;
+    }
+    .st-key-finance_navigation button {
+        min-height: 56px;
+        font-size: 0.78rem;
+        line-height: 1.22;
+    }
+    .st-key-finance_navigation button p {
+        min-height: 0;
+        font-size: 0.78rem !important;
+        line-height: 1.22 !important;
+        white-space: nowrap !important;
         word-break: normal !important;
         overflow-wrap: normal !important;
         hyphens: none !important;
     }
-    .st-key-finance_navigation [data-testid="column"]:nth-child(3) .stButton > button {
+    .st-key-finance_navigation :is([data-testid="column"], [data-testid="stColumn"]):nth-child(3) button {
         margin-top: 0;
     }
 }
