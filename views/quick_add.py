@@ -172,6 +172,16 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
             key="quick_loan_category",
             optional=True,
         )
+        record_receipt = st.checkbox(
+            "Adicionar o valor contratado ao saldo disponível",
+            value=False,
+            help="Ative somente se esse dinheiro realmente entrou na conta selecionada.",
+        )
+        receipt_date = st.date_input(
+            "Data de entrada do valor (usada somente se a opção acima estiver ativa)",
+            value=date.today(),
+            format="DD/MM/YYYY",
+        )
         interest_rate = st.number_input(
             "Taxa de juros (% ao mês, opcional)",
             min_value=0.0,
@@ -206,6 +216,9 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
     if not name.strip() or principal is None or total is None:
         st.warning("Informe nome, valor contratado e total a pagar.")
         return
+    if record_receipt and account is None:
+        st.warning("Selecione a conta na qual o valor do empréstimo entrou.")
+        return
     try:
         with repository.session.begin_nested():
             repository.create_loan(
@@ -220,7 +233,8 @@ def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
                 account_id=getattr(account, "id", None),
                 category_id=getattr(category, "id", None),
                 interest_rate=Decimal(str(interest_rate)),
-                record_disbursement=False,
+                record_disbursement=record_receipt,
+                disbursement_date=receipt_date,
                 notes=notes.strip() or None,
             )
         notify_success("Empréstimo adicionado com o cronograma mensal")

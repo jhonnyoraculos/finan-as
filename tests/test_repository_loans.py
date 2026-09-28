@@ -53,7 +53,27 @@ def test_create_and_pay_monthly_loan() -> None:
         session.close()
 
 
-def test_loan_disbursement_never_inflates_available_balance() -> None:
+def test_legacy_loan_disbursement_stays_out_of_available_balance() -> None:
+    session, repository = _repository()
+    try:
+        user = repository.create_user("Teste")
+        account = repository.create_account(user.id, "Conta")
+        repository.create_transaction(
+            user.id,
+            "Empréstimo antigo",
+            Decimal("4700.00"),
+            "income",
+            date(2026, 9, 28),
+            account_id=account.id,
+            source="loan_disbursement",
+        )
+
+        assert repository.total_available_balance(user.id) == Decimal("0.00")
+    finally:
+        session.close()
+
+
+def test_opted_in_loan_disbursement_enters_available_balance_only() -> None:
     session, repository = _repository()
     try:
         user = repository.create_user("Teste")
@@ -71,7 +91,10 @@ def test_loan_disbursement_never_inflates_available_balance() -> None:
         )
 
         assert loan.disbursement_transaction_id is not None
-        assert repository.total_available_balance(user.id) == Decimal("0.00")
+        assert repository.total_available_balance(user.id) == Decimal("4700.00")
+        assert repository.monthly_summary(user.id, date(2026, 9, 1)).income == Decimal(
+            "0.00"
+        )
     finally:
         session.close()
 

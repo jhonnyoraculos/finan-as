@@ -1010,7 +1010,9 @@ class FinanceRepository:
             Transaction.competence_date < end,
             Transaction.status.in_(("paid", "pending")),
             Transaction.transaction_type.in_(("income", "expense")),
-            Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
+            Transaction.source.not_in(
+                ("invoice_payment", "loan_disbursement", "loan_disbursement_cash")
+            ),
         )
         row = self.session.execute(
             select(
@@ -1080,7 +1082,9 @@ class FinanceRepository:
                 Transaction.competence_date < _next_month(last),
                 Transaction.status.in_(("paid", "pending")),
                 Transaction.transaction_type.in_(("income", "expense")),
-                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
+                Transaction.source.not_in(
+                    ("invoice_payment", "loan_disbursement", "loan_disbursement_cash")
+                ),
             )
             .group_by(year_expr, month_expr)
             .order_by(year_expr, month_expr)
@@ -1126,7 +1130,9 @@ class FinanceRepository:
                 Transaction.deleted_at.is_(None),
                 Transaction.transaction_type == "expense",
                 Transaction.status.in_(("paid", "pending")),
-                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
+                Transaction.source.not_in(
+                    ("invoice_payment", "loan_disbursement", "loan_disbursement_cash")
+                ),
                 Transaction.competence_date >= start_date,
                 Transaction.competence_date <= end_date,
             )
@@ -1160,7 +1166,9 @@ class FinanceRepository:
                 Transaction.deleted_at.is_(None),
                 Transaction.transaction_type == "expense",
                 Transaction.status.in_(("paid", "pending")),
-                Transaction.source.not_in(("invoice_payment", "loan_disbursement")),
+                Transaction.source.not_in(
+                    ("invoice_payment", "loan_disbursement", "loan_disbursement_cash")
+                ),
                 Transaction.competence_date >= start_date,
                 Transaction.competence_date <= end_date,
             )
@@ -1523,7 +1531,7 @@ class FinanceRepository:
                 account_id=account_ref,
                 payment_method="transfer",
                 notes=notes,
-                source="loan_disbursement",
+                source="loan_disbursement_cash",
             )
         loan = self.create(
             Loan,

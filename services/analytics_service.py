@@ -394,6 +394,7 @@ def _include_for_basis(transaction: Any, date_basis: str) -> bool:
             "invoice_payment",
             "pagamento_fatura",
             "loan_disbursement",
+            "loan_disbursement_cash",
             "emprestimo_recebido",
         }
     raise ValueError("date_basis deve ser 'competence' ou 'cash'.")
