@@ -107,13 +107,12 @@ def _render_favorites(repository: Any, user: Any) -> None:
         )
 
 
-def _render_loan_form(repository: Any, user: Any) -> None:
+def _render_loan_form(repository: Any, user: Any, accounts: list[Any]) -> None:
     """Render the dedicated monthly-loan entry flow."""
 
     from services.loan_service import generate_loan_schedule
     from utils.currency import format_brl_currency
 
-    accounts = repository.list_accounts(user.id)
     categories = repository.list_categories(user.id, kind="expense")
     st.info(
         "Cadastre o valor recebido e o total financiado. O app cria todas as "
@@ -244,7 +243,7 @@ def _render_loan_form(repository: Any, user: Any) -> None:
         friendly_error("Não foi possível adicionar o empréstimo.", exc)
 
 
-def render(repository: Any, user: Any) -> None:
+def render(repository: Any, user: Any, *, accounts: list[Any] | None = None) -> None:
     if st.session_state.pop("_clear_quick_on_load", False):
         _clear_form()
     page_header(
@@ -259,8 +258,9 @@ def render(repository: Any, user: Any) -> None:
         options=("despesa", "receita", "transferencia", "emprestimo"),
     )
     transaction_type = TYPE_MAP[selected_type]
+    accounts = accounts if accounts is not None else repository.list_accounts(user.id)
     if transaction_type == "loan":
-        _render_loan_form(repository, user)
+        _render_loan_form(repository, user, accounts)
         return
     amount = money_input(
         "Valor",
@@ -276,7 +276,6 @@ def render(repository: Any, user: Any) -> None:
         max_chars=240,
     )
 
-    accounts = repository.list_accounts(user.id)
     category_kind = "income" if transaction_type == "income" else "expense"
     categories = repository.list_categories(user.id, kind=category_kind)
     cards = repository.list_credit_cards(user.id)

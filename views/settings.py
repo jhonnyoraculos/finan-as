@@ -58,9 +58,8 @@ def _backup_zip(repository: Any, user_id: Any) -> bytes:
     return output.getvalue()
 
 
-def _render_profile(repository: Any, user: Any) -> None:
+def _render_profile(repository: Any, user: Any, accounts: list[Any]) -> None:
     settings = repository.get_settings(user.id)
-    accounts = repository.list_accounts(user.id)
     categories = repository.list_categories(user.id)
     render_section_header("Preferências")
     session_privacy = privacy_enabled()
@@ -300,14 +299,19 @@ def _render_data(repository: Any, user: Any, engine: Any) -> None:
             value_is_formatted=True,
             tone="neutral",
         )
-    st.download_button(
-        "Exportar backup em ZIP",
-        data=_backup_zip(repository, user.id),
-        file_name=f"financas_backup_{date.today():%Y-%m-%d}.zip",
-        mime="application/zip",
-        use_container_width=True,
-        help="Um CSV por tabela, incluindo registros arquivados.",
-    )
+    backup_data = None
+    if st.button("Preparar backup em ZIP", key="prepare_backup", use_container_width=True):
+        backup_data = _backup_zip(repository, user.id)
+    if backup_data is not None:
+        st.download_button(
+            "Baixar backup em ZIP",
+            data=backup_data,
+            file_name=f"financas_backup_{date.today():%Y-%m-%d}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            help="Um CSV por tabela, incluindo registros arquivados.",
+            on_click="ignore",
+        )
     st.caption("Não há backup externo automático nesta versão. Guarde o arquivo em local seguro.")
 
     if os.getenv("FINANCE_APP_ENV", "").casefold() == "development":
@@ -323,16 +327,26 @@ def _render_data(repository: Any, user: Any, engine: Any) -> None:
         )
 
 
-def render(repository: Any, user: Any, *, engine: Any = None) -> None:
+def render(
+    repository: Any,
+    user: Any,
+    *,
+    engine: Any = None,
+    accounts: list[Any] | None = None,
+) -> None:
     page_header("Configurações", "Preferências e cadastros-base em um só lugar.", eyebrow="Controle local")
-    profile_tab, account_tab, category_tab, data_tab = st.tabs(
-        ("Preferências", "Contas", "Categorias", "Dados")
+    section = st.segmented_control(
+        "Área de configurações",
+        ("Preferências", "Contas", "Categorias", "Dados"),
+        default="Preferências",
+        key="settings_section",
     )
-    with profile_tab:
-        _render_profile(repository, user)
-    with account_tab:
+    if section == "Preferências":
+        accounts = accounts if accounts is not None else repository.list_accounts(user.id)
+        _render_profile(repository, user, accounts)
+    elif section == "Contas":
         _render_accounts(repository, user)
-    with category_tab:
+    elif section == "Categorias":
         _render_categories(repository, user)
-    with data_tab:
+    else:
         _render_data(repository, user, engine)

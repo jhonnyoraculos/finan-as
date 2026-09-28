@@ -12,7 +12,13 @@ from views import bills, planning, settings, transactions
 SECTIONS = ("Histórico", "Contas", "Planejamento", "Configurações")
 
 
-def render(repository: Any, user: Any, *, engine: Any = None) -> None:
+def render(
+    repository: Any,
+    user: Any,
+    *,
+    engine: Any = None,
+    accounts: list[Any] | None = None,
+) -> None:
     selected = st.segmented_control(
         "Área",
         SECTIONS,
@@ -22,10 +28,10 @@ def render(repository: Any, user: Any, *, engine: Any = None) -> None:
         width="stretch",
     ) or "Histórico"
     if selected == "Histórico":
-        transactions.render(repository, user)
+        transactions.render(repository, user, accounts=accounts)
     elif selected == "Contas":
-        bills.render(repository, user)
+        bills.render(repository, user, accounts=accounts)
     elif selected == "Planejamento":
-        planning.render(repository, user)
+        planning.render(repository, user, accounts=accounts)
     else:
-        settings.render(repository, user, engine=engine)
+        settings.render(repository, user, engine=engine, accounts=accounts)

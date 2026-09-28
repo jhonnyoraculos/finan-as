@@ -491,6 +491,19 @@ textarea:focus-visible {
     box-shadow: 0 0 18px color-mix(in srgb, var(--progress-color), transparent 58%);
 }
 
+.finance-sparkline {
+    width: 100%;
+    height: 112px;
+    margin: 0.2rem 0 0.55rem;
+}
+
+.finance-sparkline svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
 .finance-section-heading {
     display: flex;
     align-items: end;

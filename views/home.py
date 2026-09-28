@@ -15,9 +15,9 @@ from components.cards import (
     render_metric_card,
     render_progress_card,
     render_section_header,
+    render_sparkline,
     render_transaction_card,
 )
-from components.charts import render_chart, sparkline_chart
 from components.navigation import navigate_to
 from utils.dates import add_months, format_brl_date, month_end, month_start
 from views.common import ACCOUNT_TYPES, PAYMENT_METHODS, privacy_enabled, status_label
@@ -101,8 +101,8 @@ def render(repository: Any, user: Any) -> None:
             hidden=private,
         )
 
-    labels, cashflow = _cashflow_series(repository, user.id, today)
-    render_chart(sparkline_chart(cashflow, labels=labels), key="home_sparkline")
+    _labels, cashflow = _cashflow_series(repository, user.id, today)
+    render_sparkline(cashflow)
 
     render_section_header("Gastos do mês", subtitle="Acompanhamento tranquilo do seu limite")
     if budget_total > 0:

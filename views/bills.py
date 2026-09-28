@@ -530,21 +530,31 @@ def _render_loans(repository: Any, user: Any, accounts: list[Any]) -> None:
         )
 
 
-def render(repository: Any, user: Any) -> None:
+def render(repository: Any, user: Any, *, accounts: list[Any] | None = None) -> None:
     page_header("Contas e assinaturas", "Vencimentos previsíveis, sem alertas agressivos.", eyebrow="Próximos compromissos")
-    accounts = repository.list_accounts(user.id)
-    categories = repository.list_categories(user.id, kind="expense")
-    cards = repository.list_credit_cards(user.id)
-    open_tab, loan_tab, add_tab, recurring_tab, subscription_tab = st.tabs(
-        ("Em aberto", "Empréstimos", "Adicionar", "Recorrentes", "Assinaturas")
-    )
-    with open_tab:
+    section = st.segmented_control(
+        "Área de contas",
+        ("Em aberto", "Empréstimos", "Adicionar", "Recorrentes", "Assinaturas"),
+        default="Em aberto",
+        key="bills_section",
+        selection_mode="single",
+        width="stretch",
+        label_visibility="collapsed",
+    ) or "Em aberto"
+
+    accounts = accounts if accounts is not None else repository.list_accounts(user.id)
+    if section == "Em aberto":
+        categories = repository.list_categories(user.id, kind="expense")
         _render_open_bills(repository, user, accounts, categories)
-    with add_tab:
+    elif section == "Adicionar":
+        categories = repository.list_categories(user.id, kind="expense")
         _render_add_bill(repository, user, accounts, categories)
-    with loan_tab:
+    elif section == "Empréstimos":
         _render_loans(repository, user, accounts)
-    with recurring_tab:
+    elif section == "Recorrentes":
+        categories = repository.list_categories(user.id, kind="expense")
         _render_recurring(repository, user, accounts, categories)
-    with subscription_tab:
+    else:
+        categories = repository.list_categories(user.id, kind="expense")
+        cards = repository.list_credit_cards(user.id)
         _render_subscriptions(repository, user, accounts, categories, cards)

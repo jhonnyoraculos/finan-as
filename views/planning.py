@@ -100,8 +100,7 @@ def _render_budgets(repository: Any, user: Any) -> None:
             friendly_error("Não foi possível salvar o orçamento.", exc)
 
 
-def _render_goals(repository: Any, user: Any) -> None:
-    accounts = repository.list_accounts(user.id)
+def _render_goals(repository: Any, user: Any, accounts: list[Any]) -> None:
     progress = repository.goal_progress(user.id)
     render_section_header("Metas financeiras", subtitle="Acompanhe o que está construindo")
     for item in progress:
@@ -115,8 +114,13 @@ def _render_goals(repository: Any, user: Any) -> None:
             subtitle=(f"Até {format_brl_date(goal.target_date)}" if goal.target_date else status_label(goal.status)),
             hidden=privacy_enabled(),
         )
-    add_tab, contribution_tab = st.tabs(("Nova meta", "Adicionar aporte"))
-    with add_tab:
+    action = st.segmented_control(
+        "Ação da meta",
+        ("Nova meta", "Adicionar aporte"),
+        default="Nova meta",
+        key="goals_action",
+    )
+    if action == "Nova meta":
         with st.form("new_goal"):
             name = st.text_input("Nome", placeholder="Reserva de emergência", max_chars=140)
             target = money_input("Valor da meta", key="goal_target", minimum=Decimal("0.01"))
@@ -149,19 +153,23 @@ def _render_goals(repository: Any, user: Any) -> None:
                     safe_rerun()
                 except Exception as exc:
                     friendly_error("Não foi possível criar a meta.", exc)
-    with contribution_tab:
+    else:
         if progress:
-            goal = st.selectbox("Meta", [item["goal"] for item in progress], format_func=lambda item: item.name)
-            amount = money_input("Valor do aporte", key="goal_contribution", minimum=Decimal("0.01"))
-            account = select_model(
-                "Conta de referência",
-                accounts,
-                key="goal_contribution_account",
-                optional=True,
-                help="O aporte acompanha a meta; não cria uma nova despesa.",
-            )
-            contribution_date = st.date_input("Data", value=date.today(), format="DD/MM/YYYY")
-            if st.button("Adicionar aporte", type="primary", use_container_width=True):
+            with st.form("goal_contribution_form"):
+                goal = st.selectbox("Meta", [item["goal"] for item in progress], format_func=lambda item: item.name)
+                amount = money_input("Valor do aporte", key="goal_contribution", minimum=Decimal("0.01"))
+                account = select_model(
+                    "Conta de referência",
+                    accounts,
+                    key="goal_contribution_account",
+                    optional=True,
+                    help="O aporte acompanha a meta; não cria uma nova despesa.",
+                )
+                contribution_date = st.date_input("Data", value=date.today(), format="DD/MM/YYYY")
+                contribution_submitted = st.form_submit_button(
+                    "Adicionar aporte", type="primary", use_container_width=True
+                )
+            if contribution_submitted:
                 if amount is None:
                     st.warning("Informe o valor do aporte.")
                 else:
@@ -227,24 +235,6 @@ def _render_goals(repository: Any, user: Any) -> None:
 
 def _render_wealth(repository: Any, user: Any) -> None:
     summary = repository.net_worth_summary(user.id)
-    assets = list(
-        repository.session.scalars(
-            select(Asset).where(
-                Asset.user_id == user.id,
-                Asset.deleted_at.is_(None),
-                Asset.is_active.is_(True),
-            ).order_by(Asset.name)
-        )
-    )
-    liabilities = list(
-        repository.session.scalars(
-            select(Liability).where(
-                Liability.user_id == user.id,
-                Liability.deleted_at.is_(None),
-                Liability.is_active.is_(True),
-            ).order_by(Liability.name)
-        )
-    )
     net_col, asset_col, liability_col = st.columns(3)
     with net_col:
         render_metric_card("Patrimônio líquido", summary["net_worth"], tone="purple", hidden=privacy_enabled())
@@ -279,8 +269,22 @@ def _render_wealth(repository: Any, user: Any) -> None:
         except Exception as exc:
             friendly_error("Não foi possível registrar a posição.", exc)
 
-    asset_tab, liability_tab = st.tabs(("Ativos", "Passivos"))
-    with asset_tab:
+    wealth_section = st.segmented_control(
+        "Área patrimonial",
+        ("Ativos", "Passivos"),
+        default="Ativos",
+        key="wealth_section",
+    )
+    if wealth_section == "Ativos":
+        assets = list(
+            repository.session.scalars(
+                select(Asset).where(
+                    Asset.user_id == user.id,
+                    Asset.deleted_at.is_(None),
+                    Asset.is_active.is_(True),
+                ).order_by(Asset.name)
+            )
+        )
         for item in assets:
             render_bill_card(
                 item.name,
@@ -350,7 +354,16 @@ def _render_wealth(repository: Any, user: Any) -> None:
                 confirm_kwargs={"user_id": user.id},
                 success_message="Ativo arquivado",
             )
-    with liability_tab:
+    else:
+        liabilities = list(
+            repository.session.scalars(
+                select(Liability).where(
+                    Liability.user_id == user.id,
+                    Liability.deleted_at.is_(None),
+                    Liability.is_active.is_(True),
+                ).order_by(Liability.name)
+            )
+        )
         for item in liabilities:
             render_bill_card(
                 item.name,
@@ -501,14 +514,23 @@ def _render_calendar(repository: Any, user: Any) -> None:
             )
 
 
-def render(repository: Any, user: Any) -> None:
+def render(repository: Any, user: Any, *, accounts: list[Any] | None = None) -> None:
     page_header("Planejamento", "Orçamento, objetivos e visão patrimonial.", eyebrow="Seu próximo capítulo")
-    budget_tab, goals_tab, wealth_tab, calendar_tab = st.tabs(("Orçamento", "Metas", "Patrimônio", "Calendário"))
-    with budget_tab:
+    section = st.segmented_control(
+        "Área de planejamento",
+        ("Orçamento", "Metas", "Patrimônio", "Calendário"),
+        default="Orçamento",
+        key="planning_section",
+        selection_mode="single",
+        width="stretch",
+        label_visibility="collapsed",
+    ) or "Orçamento"
+    if section == "Orçamento":
         _render_budgets(repository, user)
-    with goals_tab:
-        _render_goals(repository, user)
-    with wealth_tab:
+    elif section == "Metas":
+        accounts = accounts if accounts is not None else repository.list_accounts(user.id)
+        _render_goals(repository, user, accounts)
+    elif section == "Patrimônio":
         _render_wealth(repository, user)
-    with calendar_tab:
+    else:
         _render_calendar(repository, user)

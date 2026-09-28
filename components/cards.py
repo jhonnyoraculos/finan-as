@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 import re
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 import streamlit as st
 
@@ -139,6 +139,46 @@ def render_section_header(
         '<div class="finance-section-heading">'
         f'<div><h2>{_safe_text(title)}</h2>{subtitle_html}</div>{action_html}'
         "</div>"
+    )
+
+
+def render_sparkline(
+    values: Iterable[Decimal | int | float | str],
+    *,
+    color: str = "#6C9EFF",
+    label: str = "Evolução financeira dos últimos meses",
+) -> None:
+    """Render a dependency-free SVG sparkline for lightweight summary pages."""
+
+    numbers = [_as_decimal(value) for value in values]
+    if not numbers:
+        return
+    low, high = min(numbers), max(numbers)
+    spread = high - low
+    last_index = max(1, len(numbers) - 1)
+    points: list[tuple[Decimal, Decimal]] = []
+    for index, value in enumerate(numbers):
+        x = Decimal(index) / Decimal(last_index) * Decimal("100")
+        y = (
+            Decimal("12")
+            if spread == 0
+            else Decimal("22") - ((value - low) / spread * Decimal("20"))
+        )
+        points.append((x, y))
+    coordinates = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+    area = f"0,24 {coordinates} 100,24"
+    safe_color = _safe_color(color, "#6C9EFF")
+    _render(
+        f'<div class="finance-sparkline" role="img" aria-label="{_safe_text(label)}">'
+        '<svg viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">'
+        '<defs><linearGradient id="finance-sparkline-fill" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{safe_color}" stop-opacity="0.22" />'
+        f'<stop offset="100%" stop-color="{safe_color}" stop-opacity="0" />'
+        '</linearGradient></defs>'
+        f'<polygon points="{area}" fill="url(#finance-sparkline-fill)" />'
+        f'<polyline points="{coordinates}" fill="none" stroke="{safe_color}" '
+        'stroke-width="0.55" stroke-linecap="round" stroke-linejoin="round" />'
+        "</svg></div>"
     )
 
 
@@ -386,6 +426,7 @@ __all__ = [
     "render_metric_card",
     "render_progress_card",
     "render_section_header",
+    "render_sparkline",
     "render_transaction_card",
     "section_header",
     "transaction_card",

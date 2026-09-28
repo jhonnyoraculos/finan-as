@@ -62,8 +62,8 @@ def _bootstrap(repository: FinanceRepository):
     elif not st.session_state.get("default_categories_checked"):
         seed_default_categories(repository.session, user.id)
         st.session_state["default_categories_checked"] = True
-    settings = repository.get_settings(user.id)
     if "privacy_mode" not in st.session_state:
+        settings = repository.get_settings(user.id)
         st.session_state["privacy_mode"] = bool(settings.privacy_mode)
     return user
 
@@ -88,12 +88,18 @@ def _render_application(repository: FinanceRepository, user, engine) -> None:
         with privacy_column:
             privacy_toggle(key="privacy_mode")
         with search_column, st.popover("⌕ Pesquisar", width="stretch"):
-            query = st.text_input(
-                "Pesquisar movimentações",
-                key="global_search_query",
-                placeholder="Mercado, salário, internet…",
-            )
-            if st.button("Ver resultados", width="stretch", disabled=not query.strip()):
+            with st.form("global_search_form", border=False):
+                query = st.text_input(
+                    "Pesquisar movimentações",
+                    key="global_search_query",
+                    placeholder="Mercado, salário, internet…",
+                )
+                search_submitted = st.form_submit_button(
+                    "Ver resultados",
+                    width="stretch",
+                    disabled=not query.strip(),
+                )
+            if search_submitted:
                 st.session_state["history_search"] = query.strip()
                 st.session_state["history_page"] = 1
                 st.session_state["more_section"] = "Histórico"
@@ -103,13 +109,13 @@ def _render_application(repository: FinanceRepository, user, engine) -> None:
     if active_page == "home":
         home.render(repository, user)
     elif active_page == "cards":
-        cards.render(repository, user)
+        cards.render(repository, user, accounts=accounts)
     elif active_page == "add":
-        quick_add.render(repository, user)
+        quick_add.render(repository, user, accounts=accounts)
     elif active_page == "analytics":
         analytics.render(repository, user)
     else:
-        more.render(repository, user, engine=engine)
+        more.render(repository, user, engine=engine, accounts=accounts)
     render_navigation(DEFAULT_NAV_ITEMS, default="home")
 
 

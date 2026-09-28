@@ -269,14 +269,22 @@ def _render_manage_card(repository: Any, user: Any, cards: list[Any], accounts: 
     )
 
 
-def render(repository: Any, user: Any) -> None:
+def render(repository: Any, user: Any, *, accounts: list[Any] | None = None) -> None:
     page_header("Cartões", "Limites e faturas com o efeito correto no saldo.", eyebrow="Apple Wallet, do seu jeito")
-    accounts = repository.list_accounts(user.id)
-    cards = repository.list_credit_cards(user.id)
-    summaries = repository.list_card_summaries(user.id)
+    section = st.segmented_control(
+        "Área de cartões",
+        ("Visão geral", "Adicionar", "Gerenciar"),
+        default="Visão geral",
+        key="cards_section",
+        selection_mode="single",
+        width="stretch",
+        label_visibility="collapsed",
+    ) or "Visão geral"
+    accounts = accounts if accounts is not None else repository.list_accounts(user.id)
 
-    overview_tab, add_tab, manage_tab = st.tabs(("Visão geral", "Adicionar", "Gerenciar"))
-    with overview_tab:
+    if section == "Visão geral":
+        cards = repository.list_credit_cards(user.id)
+        summaries = repository.list_card_summaries(user.id)
         if not summaries:
             st.info("Adicione um cartão para acompanhar faturas e parcelamentos.")
         for summary in summaries:
@@ -302,7 +310,8 @@ def render(repository: Any, user: Any) -> None:
             )
             _render_installment_plans(repository, user, selected)
             _render_invoices(repository, user, selected, accounts)
-    with add_tab:
+    elif section == "Adicionar":
         _render_card_form(repository, user, accounts)
-    with manage_tab:
+    else:
+        cards = repository.list_credit_cards(user.id)
         _render_manage_card(repository, user, cards, accounts)

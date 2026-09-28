@@ -155,8 +155,16 @@ def render(repository: Any, user: Any) -> None:
     with saving_col:
         render_metric_card("Economia no mês", current.balance, tone="purple", hidden=private)
 
-    overview_tab, forecast_tab, report_tab = st.tabs(("Dashboard", "Previsão", "Relatório"))
-    with overview_tab:
+    section = st.segmented_control(
+        "Área de análises",
+        ("Dashboard", "Previsão", "Relatório"),
+        default="Dashboard",
+        key="analytics_section",
+        selection_mode="single",
+        width="stretch",
+        label_visibility="collapsed",
+    ) or "Dashboard"
+    if section == "Dashboard":
         render_section_header("Entradas x despesas", subtitle="Últimos 6 meses")
         render_chart(
             income_expense_chart(
@@ -209,7 +217,7 @@ def render(repository: Any, user: Any) -> None:
                 key="analytics_ranking",
             )
 
-    with forecast_tab:
+    elif section == "Previsão":
         horizon_end = month_end(add_months(today, 3))
         events = _forecast_events(repository, user.id, today, horizon_end)
         points = project_balance(available, events, as_of=today, horizon_months=3)
@@ -260,7 +268,7 @@ def render(repository: Any, user: Any) -> None:
         if not insights:
             st.caption("Com mais alguns lançamentos, comparações úteis aparecerão aqui.")
 
-    with report_tab:
+    else:
         render_section_header(
             f"{MONTH_NAMES[today.month - 1]} {today.year}",
             subtitle="Resumo automático do mês",
