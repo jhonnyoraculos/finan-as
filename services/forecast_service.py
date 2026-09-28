@@ -41,6 +41,8 @@ FORECAST_EXPENSE_TYPES = EXPENSE_TYPES | {
     "despesa_recorrente",
     "conta",
     "liability",
+    "loan",
+    "emprestimo",
 }
 OUTSTANDING_STATUSES = {
     "pending",

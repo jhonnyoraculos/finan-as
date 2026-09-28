@@ -95,3 +95,17 @@ def test_overdue_unpaid_bill_remains_in_future_projection():
     assert forecast_balance_at(
         "1000,00", [overdue_bill], "2026-08-31", as_of="2026-08-24"
     ) == Decimal("875.00")
+
+
+def test_loan_installment_is_recognized_as_future_expense():
+    installment = {
+        "event_id": "loan:1",
+        "kind": "loan",
+        "amount": "250,00",
+        "date": "2026-09-10",
+        "status": "pending",
+    }
+
+    assert forecast_balance_at(
+        "1000,00", [installment], "2026-09-30", as_of="2026-08-24"
+    ) == Decimal("750.00")

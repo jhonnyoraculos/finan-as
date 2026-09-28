@@ -19,8 +19,9 @@ from components.charts import (
     ranking_bar_chart,
     render_chart,
 )
-from database.models import Subscription, Transaction
+from database.models import Transaction
 from services.analytics_service import generate_financial_insights, percentage_change
+from services.forecast_query_service import collect_forecast_events
 from services.forecast_service import project_balance
 from utils.currency import format_brl_percentage
 from utils.dates import add_months, format_brl_date, month_end, month_start
@@ -63,62 +64,6 @@ def _six_month_rows(repository: Any, user_id: Any, today: date) -> list[dict[str
             )
         )
     return rows
-
-
-def _forecast_events(repository: Any, user_id: Any, today: date, end: date) -> list[Any]:
-    events = repository.list_upcoming_events(
-        user_id,
-        start_date=today,
-        end_date=end,
-        limit=200,
-    )
-    future_income = list(
-        repository.session.scalars(
-            select(Transaction).where(
-                Transaction.user_id == user_id,
-                Transaction.deleted_at.is_(None),
-                Transaction.transaction_type == "income",
-                Transaction.status == "pending",
-                Transaction.transaction_date > today,
-                Transaction.transaction_date <= end,
-            )
-        )
-    )
-    events.extend(future_income)
-    subscriptions = list(
-        repository.session.scalars(
-            select(Subscription).where(
-                Subscription.user_id == user_id,
-                Subscription.deleted_at.is_(None),
-                Subscription.is_active.is_(True),
-                Subscription.next_charge_date > today,
-                Subscription.next_charge_date <= end,
-            )
-        )
-    )
-    for subscription in subscriptions:
-        charge = subscription.next_charge_date
-        while charge <= end:
-            events.append(
-                {
-                    "kind": "subscription",
-                    "event_date": charge,
-                    "amount": subscription.amount,
-                    "description": subscription.name,
-                    "event_id": f"subscription:{subscription.id}:{charge.isoformat()}",
-                }
-            )
-            if subscription.frequency == "weekly":
-                from datetime import timedelta
-
-                charge += timedelta(weeks=1)
-            elif subscription.frequency == "yearly":
-                from utils.dates import add_years
-
-                charge = add_years(charge, 1)
-            else:
-                charge = add_months(charge, 1, preferred_day=subscription.next_charge_date.day)
-    return events
 
 
 def _insight_transactions(repository: Any, user_id: Any, today: date) -> list[Any]:
@@ -219,7 +164,12 @@ def render(repository: Any, user: Any) -> None:
 
     elif section == "Previsão":
         horizon_end = month_end(add_months(today, 3))
-        events = _forecast_events(repository, user.id, today, horizon_end)
+        events = collect_forecast_events(
+            repository,
+            user.id,
+            as_of=today,
+            end_date=horizon_end,
+        )
         points = project_balance(available, events, as_of=today, horizon_months=3)
         render_section_header(
             "Previsão financeira",
