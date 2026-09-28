@@ -128,13 +128,26 @@ def render(repository: Any, user: Any) -> None:
     if show_future:
         horizon_label = st.segmented_control(
             "Período da previsão",
-            ("3 meses", "6 meses", "12 meses"),
+            ("3 meses", "6 meses", "12 meses", "Personalizado"),
             default="3 meses",
             key="home_future_horizon",
             selection_mode="single",
             width="stretch",
         ) or "3 meses"
-        horizon_months = {"3 meses": 3, "6 meses": 6, "12 meses": 12}[horizon_label]
+        if horizon_label == "Personalizado":
+            horizon_months = int(
+                st.number_input(
+                    "Quantos meses à frente?",
+                    min_value=1,
+                    max_value=60,
+                    value=18,
+                    step=1,
+                    key="home_custom_future_months",
+                    help="Escolha um período entre 1 e 60 meses.",
+                )
+            )
+        else:
+            horizon_months = {"3 meses": 3, "6 meses": 6, "12 meses": 12}[horizon_label]
 
     summary = repository.monthly_summary(user.id, today)
     balances = repository.get_account_balances(user.id)
